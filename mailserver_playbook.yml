@@ -1,0 +1,355 @@
+---
+#
+# Boxes Managed
+#
+- hosts: all
+
+#
+# Contract
+#
+  vars:
+    inet_interfaces: 'inet_interfaces = all'
+    myhostname:     'myhostname=mail.norbix.local'
+    mydomain:       'mydomain=norbix.local'
+    myorigin: 'myorigin = norbix.local'
+    mydestination: 'mydestination = norbix.local, \$myhostname, localhost.\$mydomain, localhost'
+    delay_warning_time: 'delay_warning_time = 0h'
+    bounce_queue_lifetime: 'bounce_queue_lifetime = 0d'
+    transport_maps: 'transport_maps = hash:/etc/postfix/transport'
+    vault_addr: 'https://vault.norbix.local'
+    vault_uri: '/v1/secret/data/environments'
+    vault_token: '<replace>'
+    deployment_fid_username: "{{ lookup('hashi_vault', 'secret=secret/data/ansible/deployment_fids/deploy/username:data token={{ vault_token }} url={{ vault_addr}} validate_certs=False')}}"
+    deployment_fid_passwd: "{{ lookup('hashi_vault', 'secret=secret/data/ansible/deployment_fids/deploy/password:data token={{ vault_token }} url={{ vault_addr}} validate_certs=False')}}"
+    deployment_fid_id_rsa: "{{ lookup('hashi_vault', 'secret=secret/data/ansible/deployment_fids/deploy/id_rsa:data token={{ vault_token }} url={{ vault_addr}} validate_certs=False')}}"
+    deployment_fid_id_rsa_pub: "{{ lookup('hashi_vault', 'secret=secret/data/ansible/deployment_fids/deploy/id_rsa.pub:data token={{ vault_token }} url={{ vault_addr}} validate_certs=False')}}"
+    become: true
+    gather_facts: yes
+
+#
+# Functions (Lambdas)
+#
+  tasks:
+    -                           # NOTE: syntactic sugar for closure
+      name: 'local_int_env_fn'  # NOTE: @Docstring, Initializing vars 4 computation
+      become: false
+      command: whoami
+      ignore_errors: yes
+      register: deployment_soeid_username
+      tags:   # NOTE: Selector
+        - local_
+        - debug_local
+        - local_init_env_fn
+        - debug_local_init_env_fn
+
+    -
+      name: 'local_serialize_objs_fn'   #NOTE: @Docstring, Serializing fetched objects from Vault REST API 2 local Home FS.
+      copy:
+        content: '{{ item.value }}'
+        dest: /home/{{ deployment_soeid_username.stdout }}/.ssh/{{ item.key }}
+      with_dict:  # NOTE: Iterator
+        - '{{ deployment_fid_id_rsa }}'
+        - '{{ deployment_fid_id_rsa_pub }}'
+      register: local_serialize_objs_fn_out
+      tags:
+        - local_
+        - debug_local
+        - local_serialize_objs_fn
+        - debug_local_serialize_objs_fn
+
+    -
+      name: 'local_run_hacks_2_fn'   # NOTE: @Docstring, running hacks (side effects '!')
+      command: mv /home/{{ deployment_soeid_username.stdout }}/.ssh/id_rsa_pub /home/{{ deployment_soeid_username.stdout}}/.ssh/id_rsa.pub
+      ignore_errors: yes
+      register: local_run_hacks_1_fn_out
+      tags:
+        - local
+        - debug_local
+        - local_run_hacks_1_fn
+        - debug_local_run_hacks_1_fn
+
+    -
+      name: 'local_run_hacks_2_fn'   # NOTE: @Docstring, Setting proper permisstion 4 artEfacts
+      file:
+        path: /home/{{ deployment_soeid_username.stdout }}/.ssh/{{ item }}
+        mode: 0600
+        owner: '{{ deployment_soeid_username.stdout }}'
+        group: '{{ deployment_soeid_username.stdout }}'
+      with_item:
+        - id_rsa
+        - id_rsa.pub
+      register: local_run_hacks_2_fn_out
+      tags:
+        - local_
+        - debug_local
+        - local_run_hacks_2_fn
+
+    -
+      name: 'remote_publish_certs_fn'   # NOTE: @Docstring, Sync Pub cert 2 a remote VMs
+      shell:
+        |
+        sshpass -p "{{ deployment_fid_passwd.password }}" ssh-copy-id -i /home/"{{ deployment_fid_username.username }}"/.ssh/id_rsa.pub \
+        -o StrictHostKeyChecking=no "{{ deployment_fid_username.username}}"@"{{ inventory_hostname }}"
+      register: remote_publish_certs_fn_out
+      tags:
+        - remote_
+        - debug_remote
+        - remote_publish_certs_fn
+        - debug_remote_publish_certs_fn
+
+    -
+      name: 'remote_valid_certs_fn'   # NOTE: Checks whether valid SSH certs r used
+      shell:
+        | 
+        timeout 5 ssh -i /home/"{{ deployment_fid_passwd.password }}"/.ssh/id_rsa -o StrictHostKeyChecking=no "{{ deployment_fid_username.username }}"@"{{ inventory_hostname }}" 'echo true'
+      register: remote_publish_certs_fn_out
+      tags:
+        - remote_
+        - debug_remote
+        - remote_publish_certs_fn
+        - debug_remote_publish_certs_fn
+
+    -
+      name: 'remote_update_os_component_fn'   # NOTE: @Docstring upgrading RHEL OS
+      yum:
+        name: '*'
+        state: latest
+      register: remote_update_os_component_fn_out
+      tags:
+        - remote_
+        - debug_remote
+        - remote_update_os_component_fn
+        - debug_remote_update_os_component_fn
+
+
+    -
+      name: 'remote_attach_epel_repo_fn'  # NOTE: Add EPEL repo
+      yum_repository:
+        name: EPEL
+        description: CentOS-8 - EPEL
+        baseurl: https://download.fedoraproject.org/pub/epel/$releasever/Everything/$basearch
+      register: remote_attach_epel_repo_fn_out
+      tags:
+        - remote_
+        - debug_remote
+        - remote_attach_epel_repo_fn
+        - debug_remote_attach_epel_repo_fn
+
+    -
+      name: 'remote_install_utils_1_fn'   # NOTE: @Docstring, Installs multiple utils via RPM
+      yum:
+        name: '{{ packages }}'
+        state: present
+      vars:
+        packages:
+          - telnet
+          - strace
+          - net-tools
+          - vim-enhanced
+          - tmux
+          - nc
+          - libselinux-utils
+          - bash-completion
+          - tree
+          - wget
+          - tcpdump
+          - dos2unix
+          - unix2dos
+          - unzip
+          - time
+          - git
+          - file
+          - openssl*
+          - rsync
+          - python2
+          - python3
+          - python3-jmespath
+          - jq
+          - perl-JSON-PP
+          - sshpass
+      register: remote_install_utils_1_fn_out
+      tags:
+        - remote_
+        - debug_remote
+        - remote_install_utils_1_fn
+        - debug_remote_install_utils_1_fn
+
+    -
+      pip:
+        name:
+          - hvac
+          - requests
+      register: remote_install_utils_2_fn_out
+      tags:
+        - remote_
+        - debug_remote
+        - remote_install_utils_2_fn
+        - debug_remote_install_utils_2_fn
+
+    -
+      name: 'remote_install_component_postfix_fn'     #NOTE: @Docstring, Installs Postfix MTA
+      yum:
+        name: '{{ packages }}'
+        state: present
+      vars:
+        packages:
+          - postfix
+          - mutt
+          - mailx
+      register: 'remote_install_component_postfix_fn'
+      tags:
+        - remote
+        - debug_remote
+        - remote_install_component_postfix_fn
+        - debug_remote_install_component_postfix_fn
+
+    -
+      name: 'remote_configure_selinux_fn'   #NOTE: Switch SELinux in permissive mode.
+      selinux:
+        policy: targeted
+        state: permissive
+      register: remote_setup_selinux_fn_out
+      tags:
+        - remote_
+        - debug_remote
+        - remote_setup_selinux_fn
+        - debug_remote_setup_selinux_fn
+
+    -
+      name: 'remote_dr_component_postfix_fn'  # NOTE: @Docstring, Perform backup of Postfix component (config files)
+      copy:
+        src: /etc/postfix/{{ item }}
+        dst: /tmp/norbix/{{ item }}.{{ ansible_date_time.epoch }}
+        remote_src: yes
+        backup: yes
+      with_items:
+        - main.cf
+        - transport
+      register: remote_dr_component_postfix_fn_out
+      tags:
+        - remote_
+        - debug_remote
+        - remote_dr_component_postfix_fn
+        - debug_remote_dr_component_postfix_fn
+
+    -
+      name: 'remote_configure_postfix_component'    # NOTE: @Docstring, Provisions the Postfix MTA component
+      shell:
+        |
+        postconf -e '{{ inet_interfaces }}'
+        postconf -e '{{ myhostname }}'
+        postconf -e '{{ mydomain }}'
+        postconf -e '{{ myorigin }}'
+        postconf -e '{{ mydestination }}'
+        postconf -e '{{ delay_warning_time }}'
+        postconf -e '{{ bounce_queue_lifetime }}'
+        echo '# Managed by Ansible' > /etc/postfix/transport
+        echo 'norbix.io :' >> /etc/postfix/transport
+        echo '*       discard' >> /etc/postfix/transport
+        postconf -e '{{ transport_maps }}'
+        postmap /etc/postfix/transport
+      notify: generic_component_postfix_restart
+      register: remote_config_components_postfix_fn_out
+      tags:
+        - remote_
+        - debug_remote
+        - remote_config_component_postfix_fn
+        - debug_remote_config_component_posftix_fn
+
+    -
+      name: 'remote_sanity_check_component_postfix_fn'    # NOTE: @Docstring, Smoke test
+      shell:
+        |
+        echo 'This is sample mail message generated from legacy VM hosting Postfix component' > mailbody.txt
+        mutt -e 'my_hdr From: Notix <no-reply>@norbix.local>' -e 'set envelope_from=yes' -s "[DEV][JIRA-777] Hello Mail Message [test] [mta]" name.last-name@norbix.io < mailbody.txt
+      register: remote_sanity_check_component_postfix_fn_out
+      tags:
+        - remote_
+        - debug_remtoe
+        - remote_sanity_check_component_postfix_fn
+        - debug_remote_sanity_check_component_postfix_fn
+
+#
+# Debuggers
+#
+    - debug:
+        msg:
+          # NOTE: Local vars
+          - "{{ inet_interfaces |}}"
+          - "{{ myhostname |}}"
+          - "{{ mydomain |}}"
+          - "{{ myorigin |}}"
+          - "{{ mydestination |}}"
+          - "{{ delay_warning_time |}}"
+          - "{{ bounce_queue_lifetime |}}"
+          - "{{ transport_maps |}}"
+          - "{{ vault_addr |}}"
+          - "{{ vault_uri |}}"
+          - "{{ vault_token |}}"
+          - "{{ deployment_fid_id_rsa |}}"
+          - "{{ deployment_fid_id_rsa_pub |}}"
+          - "{{ deployment_fid_username |}}"
+          - "{{ deployment_fid_passwd |}}"
+          - "{{ inventory_hostname |}}"
+          # NOTE: Fn return vars
+          - "{{ local_serialize_objs_fn_out | default('REPLACE') }}"
+          - "{{ local_run_hacks_1_fn_out | default('REPLACE') }}"
+          - "{{ local_run_hacks_2_fn_out | default('REPLACE') }}"
+          - "{{ remote_publish_certs_fn_out | default('REPLACE') }}"
+          - "{{ remote_valid_certs_fn_out | default('REPLACE') }}"
+          - "{{ remote_update_os_component_fn_out | default('REPLACE') }}"
+          - "{{ remote_attach_epel_repo_fn_out | default('REPLACE') }}"
+          - "{{ remote_install_utils_1_fn_out | default('REPLACE') }}"
+          - "{{ remote_install_utils_2_fn_out | default('REPLACE') }}"
+          - "{{ remote_install_components_postfix_fn | default('REPLACE') }}"
+          - "{{ remote_setup_selinux_fn_out | default('REPLACE') }}"
+          - "{{ remote_dr_component_postfix_fn_out | default('REPLACE') }}"
+          - "{{ remote_config_component_postfix_fn_out | default('REPLACE') }}"
+          - "{{ remote_sanity_check_component_postfix_fn_out | default('REPLACE') }}"
+        tags:
+          - debug_
+          - debug_local
+          - debug_local_init_env_fn
+          - debug_local_serialize_objs_fn
+          - debug_local_run_hacks_1_fn
+          - debug_local_run_hacks_2_fn
+          - debug_remote
+          - debug_remote_publish_certs_fn
+          - debug_remote_valid_certs_fn
+          - debug_remote_update_os_component_fn
+          - debug_remote_attach_epel_repo_fn
+          - debug_remote_install_utils_1_fn
+          - debug_remote_install_utils_2_fn
+          - debug_remote_install_component_postfix_fn
+          - debug_remote_setup_selinux_fn
+          - debug_remote_dr_component_postfix_fn
+          - debug_remote_config_component_posftfix_fn
+          - debug_remote_sanity_check_components_postfix_fn
+
+#
+# Handlers
+#
+  handlers:
+    -
+      name: 'generic_component_postfix_start'
+      systemd:
+        name: postfix
+        state: started
+
+    -
+      name: 'generic_component_postfix_stop'
+      systemd:
+        name: postfix
+        state: stopped
+
+    -
+      name: 'generic_component_postfix_restart'
+      systemd:
+        name: postfix
+        state: restarted
+
+    -
+      name: 'generic_component_postfix_reload'
+      systemd:
+        daemon_reload: yes
+...
