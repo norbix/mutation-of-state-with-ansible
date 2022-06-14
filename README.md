@@ -7,7 +7,7 @@ Demonstrates the usage of Ansible for the state mutation use case within IaC. pa
 ### Structure
 
 - **inventory/** contains hosts managed
-- **roles/** contains Ansible module with artEfacts structure for the ansible galaxy repo as well 
+- **roles/** contains stub Ansible module (ansible galaxy repo as well) 
 
 ## Dry run 
 
